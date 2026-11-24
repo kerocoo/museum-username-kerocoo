@@ -7,6 +7,9 @@ export const USERNAME_CATEGORIES = [
   'related boy',
   'nsfw',
   'collect only',
+  'idol',
+  '2D',
+  'sermabu',
 ] as const;
 
 export type UsernameCategory = (typeof USERNAME_CATEGORIES)[number];
@@ -18,6 +21,14 @@ export const USERNAME_STATUSES = [
 ] as const;
 
 export type UsernameStatus = (typeof USERNAME_STATUSES)[number];
+
+export const DESCRIPTION_PRESETS = [
+  'username bersih',
+  'available nego',
+  'nett',
+  'not for sale',
+  'ready pindah',
+] as const;
 
 export const USERNAME_REGEX = /^@[a-zA-Z0-9_]{1,63}$/;
 export const MAX_USERNAME_LEN = 64;
@@ -34,6 +45,8 @@ export interface UsernameItem {
   description: string;
   keptDate: string;
   price: number;
+  askOwnerPrice?: boolean;
+  availableForTrade?: boolean;
   ownerUid: string;
   createdAt?: unknown;
   updatedAt?: unknown;
@@ -85,7 +98,7 @@ export const DEFAULT_OWNER_CARD: AdminCardItem = {
   id: 'owner-ducklingy',
   name: 'yew cyrene',
   role: 'OWNER',
-  photoUrl: '/assets/owner-avatar.jpg',
+  photoUrl: './assets/owner-avatar.jpg',
   verticalTag: 'DUCKLINGY',
   galleryHandle: '@kerocoo',
   paymentChannel: '@mourah',
@@ -98,6 +111,15 @@ export const DEFAULT_OWNER_CARD: AdminCardItem = {
 export function formatRupiah(amount: number): string {
   const safe = Number.isFinite(amount) ? Math.max(0, Math.round(amount)) : 0;
   return 'Rp. ' + safe.toLocaleString('id-ID');
+}
+
+export function formatUsernamePrice(item: Pick<UsernameItem, 'price' | 'askOwnerPrice'>): string {
+  if (item.askOwnerPrice) return 'Ask Owner';
+  return formatRupiah(item.price);
+}
+
+export function isNotForSaleDescription(description?: string): boolean {
+  return Boolean(description && description.toLowerCase().includes('not for sale'));
 }
 
 export function normalizeTelegramUrl(input: string): string {

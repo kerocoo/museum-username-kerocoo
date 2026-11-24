@@ -44,7 +44,10 @@ service cloud.firestore {
         'bahasa lain',
         'related boy',
         'nsfw',
-        'collect only'
+        'collect only',
+        'idol',
+        '2D',
+        'sermabu'
       ];
     }
 
@@ -70,6 +73,8 @@ service cloud.firestore {
         'description',
         'keptDate',
         'price',
+        'askOwnerPrice',
+        'availableForTrade',
         'ownerUid',
         'createdAt',
         'updatedAt'
@@ -80,6 +85,8 @@ service cloud.firestore {
       data.description is string && data.description.size() >= 1 && data.description.size() <= 300 &&
       data.keptDate is string && data.keptDate.size() >= 1 && data.keptDate.size() <= 32 &&
       (data.price is int || data.price is float) && data.price >= 0 && data.price <= 1000000000 &&
+      (!('askOwnerPrice' in data) || data.askOwnerPrice is bool) &&
+      (!('availableForTrade' in data) || data.availableForTrade is bool) &&
       data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128 &&
       data.createdAt is timestamp &&
       data.updatedAt is timestamp;
@@ -187,6 +194,8 @@ service cloud.firestore {
           'description',
           'keptDate',
           'price',
+          'askOwnerPrice',
+          'availableForTrade',
           'updatedAt'
         ]);
 

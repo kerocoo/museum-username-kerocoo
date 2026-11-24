@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import {
   collection,
@@ -13,11 +13,35 @@ import {
   ChevronLeft,
   ChevronRight,
   ExternalLink,
+  Minus,
+  Music,
+  Plus,
   Search,
   Settings,
   Send,
   Bot,
+  Volume1,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
+import {
+  isSoundEnabled,
+  playCuteSound,
+  setSoundEnabled,
+  unlockAudioContext,
+  type CuteSoundKind,
+} from './utils/sound';
+import {
+  getMusicTrack,
+  getMusicVolume,
+  isMusicEnabled,
+  MUSIC_TRACKS,
+  type MusicTrackId,
+  setMusicEnabled,
+  setMusicTrack,
+  setMusicVolume,
+  startAmbientMusic,
+} from './utils/ambientMusic';
 import {
   auth,
   db,
@@ -29,6 +53,7 @@ import {
   type AdminCardItem,
   DEFAULT_OWNER_CARD,
   DEFAULT_STORE_CONFIG,
+  isNotForSaleDescription,
   normalizeTelegramUrl,
   OWNER_EMAIL,
   type StoreConfig,
@@ -63,8 +88,9 @@ function GalleryApp() {
     }
     return 'welcome';
   });
-  const [selectedCategory, setSelectedCategory] =
-    useState<UsernameCategory>('uncommon');
+  const [selectedCategory, setSelectedCategory] = useState<
+    UsernameCategory | 'trade'
+  >('uncommon');
   const [page, setPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedUsername, setSelectedUsername] = useState<UsernameItem | null>(
@@ -86,6 +112,87 @@ function GalleryApp() {
 
   // Testimonis confirmation toast (in case iframe blocks new-tab popup)
   const [testimoniNotice, setTestimoniNotice] = useState(false);
+  const [soundOn, setSoundOn] = useState<boolean>(() => isSoundEnabled());
+  const [musicOn, setMusicOn] = useState<boolean>(() => isMusicEnabled());
+  const [musicVolume, setMusicVolumeState] = useState<number>(() =>
+    getMusicVolume()
+  );
+  const [musicTrack, setMusicTrackState] = useState<MusicTrackId>(() =>
+    getMusicTrack()
+  );
+  const [soundMenuOpen, setSoundMenuOpen] = useState(false);
+  const soundMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const handleUnlock = () => {
+      unlockAudioContext();
+      if (isMusicEnabled()) {
+        startAmbientMusic();
+      }
+    };
+
+    const handleGlobalClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+
+      const interactive = target.closest(
+        'button, a, [role="button"], [data-cute-sound]'
+      ) as HTMLElement | null;
+
+      if (!interactive) return;
+      if (interactive.hasAttribute('data-sound-toggle')) return;
+      if (
+        (interactive as HTMLButtonElement).disabled ||
+        interactive.getAttribute('aria-disabled') === 'true'
+      ) {
+        return;
+      }
+
+      const customKind = interactive.getAttribute(
+        'data-cute-sound'
+      ) as CuteSoundKind | null;
+
+      playCuteSound(customKind || 'pop');
+    };
+
+    document.addEventListener('pointerdown', handleUnlock, {
+      capture: true,
+      passive: true,
+    });
+    document.addEventListener('click', handleGlobalClick, { capture: true });
+
+    return () => {
+      document.removeEventListener('pointerdown', handleUnlock, {
+        capture: true,
+      });
+      document.removeEventListener('click', handleGlobalClick, {
+        capture: true,
+      });
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!soundMenuOpen) return;
+    const handleOutside = (e: MouseEvent | TouchEvent) => {
+      if (
+        soundMenuRef.current &&
+        !soundMenuRef.current.contains(e.target as Node)
+      ) {
+        setSoundMenuOpen(false);
+      }
+    };
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSoundMenuOpen(false);
+    };
+    document.addEventListener('mousedown', handleOutside);
+    document.addEventListener('touchstart', handleOutside);
+    window.addEventListener('keydown', handleEsc);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      document.removeEventListener('touchstart', handleOutside);
+      window.removeEventListener('keydown', handleEsc);
+    };
+  }, [soundMenuOpen]);
 
   useEffect(() => {
     testConnection();
@@ -139,6 +246,8 @@ function GalleryApp() {
             description: String(data.description || 'username bersih'),
             keptDate: String(data.keptDate || '-'),
             price: Number(data.price || 0),
+            askOwnerPrice: Boolean(data.askOwnerPrice),
+            availableForTrade: Boolean(data.availableForTrade),
             ownerUid: String(data.ownerUid || ''),
             createdAt: data.createdAt,
             updatedAt: data.updatedAt,
@@ -245,9 +354,18 @@ function GalleryApp() {
     return counts;
   }, [usernames]);
 
+  const tradeCount = useMemo(
+    () => usernames.filter((u) => u.availableForTrade && u.status !== 'sold').length,
+    [usernames]
+  );
+
   const activeCategoryItems = useMemo(() => {
     const filtered = usernames.filter((u) => {
-      if (u.category !== selectedCategory) return false;
+      if (selectedCategory === 'trade') {
+        if (!u.availableForTrade || u.status === 'sold') return false;
+      } else if (u.category !== selectedCategory) {
+        return false;
+      }
       if (!searchTerm.trim()) return true;
       return u.username
         .toLowerCase()
@@ -269,7 +387,7 @@ function GalleryApp() {
   const displayedAdmins =
     adminCards.length > 0 ? adminCards : [DEFAULT_OWNER_CARD];
 
-  const handleOpenCategory = (cat: UsernameCategory) => {
+  const handleOpenCategory = (cat: UsernameCategory | 'trade') => {
     setSelectedCategory(cat);
     setPage(1);
     setSearchTerm('');
@@ -292,15 +410,18 @@ function GalleryApp() {
 
   return (
     <div className="relative min-h-screen w-full overflow-x-hidden flex flex-col">
-      {/* Full-viewport Lake & Swan Backdrop */}
+      {/* Full-viewport Lakeside & Trees Backdrop */}
       <div
         className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat"
-        style={{ backgroundImage: "url('/assets/lake-swan-bg.jpg')" }}
+        style={{
+          backgroundImage:
+            "url('./assets/aistudio/629aae7a46a991da0e8eabddfd8749c2__1__51a048e1.jpg')",
+        }}
         aria-hidden="true"
       />
       {/* Subtle atmospheric contrast scrim */}
       <div
-        className="fixed inset-0 z-0 bg-gradient-to-b from-black/25 via-black/15 to-black/40 pointer-events-none"
+        className="fixed inset-0 z-0 bg-gradient-to-b from-black/30 via-black/20 to-black/40 pointer-events-none"
         aria-hidden="true"
       />
 
@@ -310,6 +431,7 @@ function GalleryApp() {
           {view !== 'welcome' && (
             <button
               type="button"
+              data-cute-sound="back"
               onClick={handleBack}
               className="inline-flex items-center gap-1.5 min-h-[44px] px-3.5 py-2 rounded-full bg-black/25 hover:bg-black/40 backdrop-blur-md border border-white/30 text-white font-bold text-sm transition-colors cursor-pointer"
             >
@@ -319,16 +441,228 @@ function GalleryApp() {
           )}
         </div>
 
-        {isAdmin && view !== 'owner' && (
-          <button
-            type="button"
-            onClick={() => setView('owner')}
-            className="inline-flex items-center gap-1.5 min-h-[40px] px-3.5 py-1.5 rounded-full bg-black/25 hover:bg-black/45 backdrop-blur-md border border-white/25 text-white/90 text-xs font-semibold transition-colors cursor-pointer"
-          >
-            <Settings className="w-3.5 h-3.5" />
-            <span>Kelola Gallery</span>
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          <div ref={soundMenuRef}>
+            <button
+              type="button"
+              data-sound-toggle="true"
+              onClick={() => {
+                unlockAudioContext();
+                if (musicOn) {
+                  startAmbientMusic();
+                }
+                setSoundMenuOpen((open) => !open);
+                if (soundOn) {
+                  playCuteSound('pop');
+                }
+              }}
+              aria-label="Pengaturan musik & suara"
+              aria-expanded={soundMenuOpen}
+              title="Pengaturan musik & suara"
+              className="inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-full bg-black/30 hover:bg-black/50 backdrop-blur-md border border-white/30 text-white text-xs font-semibold transition-colors cursor-pointer"
+            >
+              {!musicOn && !soundOn ? (
+                <VolumeX className="w-4 h-4" />
+              ) : musicOn && musicVolume > 0 && musicVolume < 0.45 ? (
+                <Volume1 className="w-4 h-4" />
+              ) : (
+                <Volume2 className="w-4 h-4" />
+              )}
+              <span className="hidden sm:inline">Suara</span>
+            </button>
+
+            {soundMenuOpen && (
+              <div className="absolute right-4 sm:right-6 top-full mt-1 w-[calc(100vw-2rem)] max-w-[320px] rounded-2xl bg-[#203410]/95 backdrop-blur-xl border border-white/30 shadow-[0_20px_45px_rgba(0,0,0,0.55)] p-4 space-y-3.5 text-white z-50">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Music className="w-4 h-4 text-[#b4ec6b]" />
+                    <span className="text-xs font-bold tracking-wide uppercase text-[#f5ffde]">
+                      Musik & Suara
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    data-sound-toggle="true"
+                    onClick={() => {
+                      const next = !musicOn;
+                      setMusicOn(next);
+                      setMusicEnabled(next);
+                    }}
+                    className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition-colors cursor-pointer ${
+                      musicOn
+                        ? 'bg-[#7aa442] text-white border border-white/35'
+                        : 'bg-white/15 text-white/90 hover:bg-white/25'
+                    }`}
+                  >
+                    {musicOn ? 'Musik Aktif' : 'Musik Mati'}
+                  </button>
+                </div>
+
+                {/* Track Switcher */}
+                <div className="space-y-2 rounded-xl bg-black/25 border border-white/15 p-3">
+                  <div className="flex items-center justify-between gap-2 text-xs">
+                    <span className="font-semibold text-[#f5ffde]">
+                      Pilih Musik Alam
+                    </span>
+                    <span className="text-[11px] text-white/85 truncate max-w-[145px]">
+                      {MUSIC_TRACKS.find((t) => t.id === musicTrack)?.title}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {MUSIC_TRACKS.map((track) => {
+                      const isCurrent = track.id === musicTrack;
+                      return (
+                        <button
+                          key={track.id}
+                          type="button"
+                          data-sound-toggle="true"
+                          onClick={() => {
+                            unlockAudioContext();
+                            setMusicTrackState(track.id);
+                            if (!musicOn) {
+                              setMusicOn(true);
+                              setMusicEnabled(true);
+                            }
+                            setMusicTrack(track.id);
+                            if (soundOn) {
+                              playCuteSound('pop');
+                            }
+                          }}
+                          className={`px-2.5 py-2 rounded-lg text-left transition-colors cursor-pointer border ${
+                            isCurrent
+                              ? 'bg-[#7aa442] border-white/45 text-white shadow-sm'
+                              : 'bg-white/10 hover:bg-white/20 border-white/15 text-white/95'
+                          }`}
+                        >
+                          <p className="text-[11px] font-bold leading-tight truncate">
+                            {track.title}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[11px] text-white/90 leading-snug">
+                    {MUSIC_TRACKS.find((t) => t.id === musicTrack)?.subtitle}
+                  </p>
+                </div>
+
+                {/* Volume Slider */}
+                <div className="space-y-2 rounded-xl bg-black/25 border border-white/15 p-3">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-semibold text-[#f5ffde]">
+                      Volume Musik
+                    </span>
+                    <span className="font-mono-num font-bold text-white">
+                      {musicOn ? `${Math.round(musicVolume * 100)}%` : 'Mati'}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      data-sound-toggle="true"
+                      aria-label="Kecilkan volume musik"
+                      onClick={() => {
+                        const nextVol = Math.max(0, Math.round((musicVolume - 0.15) * 100) / 100);
+                        setMusicVolumeState(nextVol);
+                        setMusicVolume(nextVol);
+                        if (nextVol === 0) {
+                          setMusicOn(false);
+                          setMusicEnabled(false);
+                        }
+                      }}
+                      className="w-8 h-8 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center text-white shrink-0 cursor-pointer"
+                    >
+                      <Minus className="w-3.5 h-3.5" />
+                    </button>
+
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={musicOn ? Math.round(musicVolume * 100) : 0}
+                      onChange={(e) => {
+                        const pct = Number(e.target.value);
+                        const vol = pct / 100;
+                        setMusicVolumeState(vol);
+                        if (pct === 0) {
+                          setMusicOn(false);
+                          setMusicEnabled(false);
+                          setMusicVolume(0);
+                        } else {
+                          if (!musicOn) {
+                            setMusicOn(true);
+                            setMusicEnabled(true);
+                          }
+                          setMusicVolume(vol);
+                        }
+                      }}
+                      aria-label="Atur volume musik latar"
+                      className="w-full accent-[#9ae04f] cursor-pointer h-2"
+                    />
+
+                    <button
+                      type="button"
+                      data-sound-toggle="true"
+                      aria-label="Besarkan volume musik"
+                      onClick={() => {
+                        const base = musicOn ? musicVolume : 0;
+                        const nextVol = Math.min(1, Math.round((base + 0.15) * 100) / 100);
+                        setMusicVolumeState(nextVol);
+                        if (!musicOn) {
+                          setMusicOn(true);
+                          setMusicEnabled(true);
+                        }
+                        setMusicVolume(nextVol);
+                      }}
+                      className="w-8 h-8 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center text-white shrink-0 cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Click SFX Toggle */}
+                <div className="flex items-center justify-between gap-2 pt-1 border-t border-white/15">
+                  <span className="text-xs font-semibold text-white">
+                    Suara Klik Tombol
+                  </span>
+                  <button
+                    type="button"
+                    data-sound-toggle="true"
+                    onClick={() => {
+                      const next = !soundOn;
+                      setSoundOn(next);
+                      setSoundEnabled(next);
+                      if (next) {
+                        unlockAudioContext();
+                        playCuteSound('chime');
+                      }
+                    }}
+                    className={`px-3 py-1.5 rounded-full text-[11px] font-bold transition-colors cursor-pointer ${
+                      soundOn
+                        ? 'bg-[#7aa442] text-white border border-white/35'
+                        : 'bg-white/15 text-white/90 hover:bg-white/25'
+                    }`}
+                  >
+                    {soundOn ? 'Aktif' : 'Mati'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {isAdmin && view !== 'owner' && (
+            <button
+              type="button"
+              onClick={() => setView('owner')}
+              className="inline-flex items-center gap-1.5 min-h-[40px] px-3.5 py-1.5 rounded-full bg-black/25 hover:bg-black/45 backdrop-blur-md border border-white/25 text-white text-xs font-semibold transition-colors cursor-pointer"
+            >
+              <Settings className="w-3.5 h-3.5" />
+              <span>Kelola Gallery</span>
+            </button>
+          )}
+        </div>
       </header>
 
       {/* Main Content Stage */}
@@ -338,11 +672,11 @@ function GalleryApp() {
           <section className="flex flex-col items-center justify-center text-center py-12 sm:py-20 space-y-6">
             <div className="space-y-2 max-w-2xl mx-auto">
               <h1
-                className="font-display-serif text-5xl sm:text-6xl md:text-7xl font-bold tracking-tight leading-none text-[#729b39]"
+                className="font-display-serif text-5xl sm:text-6xl md:text-7xl font-bold tracking-tight leading-none text-[#88b548]"
                 style={{
-                  WebkitTextStroke: '1.8px #0f1f05',
+                  WebkitTextStroke: '1.8px #132607',
                   paintOrder: 'stroke fill',
-                  textShadow: '0 6px 24px rgba(0,0,0,0.45)',
+                  textShadow: '0 6px 22px rgba(0,0,0,0.45)',
                 }}
               >
                 Selamat Datang
@@ -350,6 +684,7 @@ function GalleryApp() {
               <p className="font-display-serif italic text-xl sm:text-2xl md:text-3xl text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.65)]">
                 di gallery username{' '}
                 <span
+                  data-cute-sound="pop"
                   onClick={() => {
                     const next = secretTapCount + 1;
                     if (next >= 5) {
@@ -367,6 +702,7 @@ function GalleryApp() {
 
             <button
               type="button"
+              data-cute-sound="chime"
               onClick={() => setView('menu')}
               className="glass-pill min-w-[220px] sm:min-w-[260px] min-h-[54px] px-10 py-3.5 rounded-full text-xl font-bold text-white tracking-wide transition-transform active:scale-95 cursor-pointer"
             >
@@ -414,7 +750,7 @@ function GalleryApp() {
                 className="glass-pill w-full min-h-[56px] rounded-full text-lg sm:text-xl font-semibold text-white flex items-center justify-center gap-2 transition-transform active:scale-[0.98]"
               >
                 <span>testimoni</span>
-                <ExternalLink className="w-4 h-4 opacity-80" />
+                <ExternalLink className="w-4 h-4 opacity-95" />
               </a>
 
               <button
@@ -427,7 +763,7 @@ function GalleryApp() {
             </div>
 
             {testimoniNotice && (
-              <div className="glass-panel rounded-2xl px-4 py-3 text-xs sm:text-sm text-white/95 max-w-sm">
+              <div className="glass-panel rounded-2xl px-4 py-3 text-xs sm:text-sm text-white max-w-sm">
                 Mengarahkan ke channel testimoni{' '}
                 <a
                   href={testimoniHref}
@@ -467,15 +803,30 @@ function GalleryApp() {
                     onClick={() => handleOpenCategory(category)}
                     className="glass-pill min-h-[60px] px-4 py-3 rounded-full flex flex-col items-center justify-center transition-transform active:scale-[0.97] cursor-pointer"
                   >
-                    <span className="text-base sm:text-lg font-bold italic text-[#ecffd2] drop-shadow-[0_2px_4px_rgba(0,0,0,0.6)]">
+                    <span className="text-base sm:text-lg font-bold italic text-[#f7ffe8] drop-shadow-[0_2px_6px_rgba(0,0,0,0.7)]">
                       {category}
                     </span>
-                    <span className="text-[11px] font-medium text-white/85 tabular-nums">
-                      {count} username
+                    <span className="text-[11px] font-medium text-white drop-shadow-[0_1px_4px_rgba(0,0,0,0.65)] tabular-nums">
+                      {category === 'sermabu'
+                        ? `serba 5rb · ${count} usn`
+                        : `${count} username`}
                     </span>
                   </button>
                 );
               })}
+
+              <button
+                type="button"
+                onClick={() => handleOpenCategory('trade')}
+                className="glass-pill min-h-[60px] px-4 py-3 rounded-full flex flex-col items-center justify-center transition-transform active:scale-[0.97] cursor-pointer"
+              >
+                <span className="text-base sm:text-lg font-bold italic text-[#f7ffe8] drop-shadow-[0_2px_6px_rgba(0,0,0,0.7)]">
+                  trade
+                </span>
+                <span className="text-[11px] font-medium text-white drop-shadow-[0_1px_4px_rgba(0,0,0,0.65)] tabular-nums">
+                  {tradeCount} available
+                </span>
+              </button>
             </div>
           </section>
         )}
@@ -485,14 +836,21 @@ function GalleryApp() {
           <section className="flex flex-col items-center py-4 sm:py-8 space-y-6 max-w-4xl mx-auto w-full">
             {/* Category Header Pill */}
             <div className="glass-pill px-8 py-3 rounded-full text-center">
-              <h2 className="text-xl sm:text-2xl font-extrabold text-[#162d09] tracking-tight drop-shadow-[0_1px_0_rgba(255,255,255,0.65)]">
+              <h2 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight drop-shadow-[0_2px_8px_rgba(0,0,0,0.75)]">
                 {selectedCategory}
               </h2>
+              {(selectedCategory === 'sermabu' || selectedCategory === 'trade') && (
+                <p className="text-xs font-bold text-[#f3ffd8] tracking-wide drop-shadow-[0_1px_4px_rgba(0,0,0,0.7)]">
+                  {selectedCategory === 'sermabu'
+                    ? 'serba lima ribu'
+                    : 'available untuk trade'}
+                </p>
+              )}
             </div>
 
             {/* Search Filter */}
             <div className="relative w-full max-w-sm">
-              <Search className="w-4 h-4 text-white/75 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <Search className="w-4 h-4 text-white/95 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
                 value={searchTerm}
@@ -501,19 +859,25 @@ function GalleryApp() {
                   setPage(1);
                 }}
                 placeholder="Cari @username..."
-                className="w-full rounded-full bg-black/30 backdrop-blur-md border border-white/35 pl-10 pr-4 py-2.5 text-sm text-white placeholder-white/65 focus:outline-none focus:border-white"
+                className="w-full rounded-full bg-black/30 backdrop-blur-md border border-white/35 pl-10 pr-4 py-2.5 text-sm text-white placeholder-white/85 focus:outline-none focus:border-white"
               />
             </div>
 
             {/* 2-col (mobile) / 3-col (desktop) Username Grid */}
             {loadingUsernames ? (
-              <div className="glass-panel rounded-3xl px-8 py-10 text-center text-white/90 text-sm">
+              <div className="glass-panel rounded-3xl px-8 py-10 text-center text-white text-sm">
                 Memuat daftar username...
               </div>
             ) : paginatedItems.length === 0 ? (
               <div className="glass-panel rounded-3xl p-8 max-w-md w-full text-center space-y-4">
-                <p className="text-sm sm:text-base font-medium text-white/90">
-                  Belum ada username di kategori <strong>{selectedCategory}</strong>.
+                <p className="text-sm sm:text-base font-medium text-white">
+                  {selectedCategory === 'trade' ? (
+                    <>Belum ada username yang available untuk <strong>trade</strong>.</>
+                  ) : (
+                    <>
+                      Belum ada username di kategori <strong>{selectedCategory}</strong>.
+                    </>
+                  )}
                 </p>
                 {isAdmin && (
                   <button
@@ -533,21 +897,33 @@ function GalleryApp() {
                     type="button"
                     onClick={() => setSelectedUsername(item)}
                     className={`glass-pill min-h-[54px] px-3 py-2.5 rounded-full flex flex-col items-center justify-center transition-transform active:scale-[0.97] cursor-pointer ${
-                      item.status === 'sold' ? 'opacity-65' : ''
+                      item.status === 'sold' ? 'opacity-80' : ''
                     }`}
                   >
                     <span
-                      className={`text-base sm:text-lg font-extrabold tracking-tight text-[#162d09] drop-shadow-[0_1px_0_rgba(255,255,255,0.65)] truncate max-w-full ${
+                      className={`text-base sm:text-lg font-extrabold tracking-tight text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.8)] truncate max-w-full ${
                         item.status === 'sold' ? 'line-through' : ''
                       }`}
                     >
                       {item.username}
                     </span>
-                    {item.status !== 'available to buy' && (
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-white/90">
+                    {item.status !== 'available to buy' ? (
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.7)]">
                         {item.status}
                       </span>
-                    )}
+                    ) : item.availableForTrade && selectedCategory === 'trade' ? (
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-[#f5ffde] drop-shadow-[0_1px_3px_rgba(0,0,0,0.7)]">
+                        available trade
+                      </span>
+                    ) : isNotForSaleDescription(item.description) ? (
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-amber-100 drop-shadow-[0_1px_3px_rgba(0,0,0,0.7)]">
+                        {item.availableForTrade ? 'not for sale · trade' : 'not for sale'}
+                      </span>
+                    ) : item.availableForTrade ? (
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-[#f5ffde] drop-shadow-[0_1px_3px_rgba(0,0,0,0.7)]">
+                        open trade
+                      </span>
+                    ) : null}
                   </button>
                 ))}
               </div>
@@ -577,7 +953,7 @@ function GalleryApp() {
                     <ChevronRight className="w-4 h-4" />
                   </button>
                 </div>
-                <p className="text-center text-xs font-medium text-white/85 font-mono-num">
+                <p className="text-center text-xs font-medium text-white drop-shadow-[0_1px_4px_rgba(0,0,0,0.65)] font-mono-num">
                   Halaman {currentPage} dari {totalPages}
                 </p>
               </div>
@@ -599,7 +975,7 @@ function GalleryApp() {
               >
                 LIST ADMIN
               </h2>
-              <p className="text-xs sm:text-sm text-white/90 mt-1">
+              <p className="text-xs sm:text-sm text-white drop-shadow-[0_1px_4px_rgba(0,0,0,0.65)] mt-1">
                 Klik tombol Slide To Answer atau handle Telegram untuk menghubungi admin.
               </p>
             </div>
@@ -638,10 +1014,10 @@ function GalleryApp() {
               <ol className="space-y-4">
                 {storeConfig.howToOrderSteps.map((step, index) => (
                   <li key={index} className="flex items-start gap-3.5">
-                    <span className="font-mono-num text-sm font-extrabold bg-[#36510b] text-[#ecffd2] w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5">
+                    <span className="font-mono-num text-sm font-extrabold bg-[#36510b] text-[#f5ffde] w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5">
                       {String(index + 1).padStart(2, '0')}
                     </span>
-                    <p className="text-sm sm:text-base font-medium leading-relaxed text-white/95">
+                    <p className="text-sm sm:text-base font-medium leading-relaxed text-white">
                       {step}
                     </p>
                   </li>
@@ -649,7 +1025,7 @@ function GalleryApp() {
               </ol>
 
               {storeConfig.howToOrderNote && (
-                <div className="pt-4 border-t border-white/25 text-xs sm:text-sm text-white/90 leading-relaxed">
+                <div className="pt-4 border-t border-white/30 text-xs sm:text-sm text-white leading-relaxed">
                   {storeConfig.howToOrderNote}
                 </div>
               )}

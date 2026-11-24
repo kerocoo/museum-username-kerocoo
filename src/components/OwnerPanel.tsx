@@ -29,7 +29,8 @@ import {
 import {
   type AdminCardItem,
   DEFAULT_OWNER_CARD,
-  formatRupiah,
+  DESCRIPTION_PRESETS,
+  formatUsernamePrice,
   MAX_DESCRIPTION_LEN,
   MAX_KEPT_DATE_LEN,
   MAX_PRICE,
@@ -86,7 +87,9 @@ export function OwnerPanel({
   const [descriptionInput, setDescriptionInput] = useState('username bersih');
   const [keptDateInput, setKeptDateInput] = useState(getTodayFormatted());
   const [priceInput, setPriceInput] = useState('150000');
-  const [filterCategory, setFilterCategory] = useState<'all' | UsernameCategory>('all');
+  const [askOwnerPriceInput, setAskOwnerPriceInput] = useState(false);
+  const [availableForTradeInput, setAvailableForTradeInput] = useState(false);
+  const [filterCategory, setFilterCategory] = useState<'all' | 'trade' | UsernameCategory>('all');
 
   // Store config form state
   const [tgAccount, setTgAccount] = useState(storeConfig.telegramAccountUrl);
@@ -130,6 +133,8 @@ export function OwnerPanel({
     setDescriptionInput('username bersih');
     setKeptDateInput(getTodayFormatted());
     setPriceInput('150000');
+    setAskOwnerPriceInput(false);
+    setAvailableForTradeInput(false);
   };
 
   const handleLogin = async () => {
@@ -172,8 +177,13 @@ export function OwnerPanel({
       return;
     }
 
-    const numericPrice = Number(priceInput.replace(/[^0-9]/g, ''));
-    if (!Number.isFinite(numericPrice) || numericPrice < 0 || numericPrice > MAX_PRICE) {
+    const numericPrice = askOwnerPriceInput
+      ? 0
+      : Number(priceInput.replace(/[^0-9]/g, ''));
+    if (
+      !askOwnerPriceInput &&
+      (!Number.isFinite(numericPrice) || numericPrice < 0 || numericPrice > MAX_PRICE)
+    ) {
       setErrorMsg('Harga harus berupa angka valid (0 - 1.000.000.000).');
       return;
     }
@@ -189,6 +199,8 @@ export function OwnerPanel({
           description: cleanDesc,
           keptDate: cleanDate,
           price: numericPrice,
+          askOwnerPrice: askOwnerPriceInput,
+          availableForTrade: availableForTradeInput,
           updatedAt: serverTimestamp(),
         });
         flashSuccess(`Username ${normalized} berhasil diperbarui.`);
@@ -202,6 +214,8 @@ export function OwnerPanel({
           description: cleanDesc,
           keptDate: cleanDate,
           price: numericPrice,
+          askOwnerPrice: askOwnerPriceInput,
+          availableForTrade: availableForTradeInput,
           ownerUid: user.uid,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
@@ -230,6 +244,8 @@ export function OwnerPanel({
     setDescriptionInput(item.description);
     setKeptDateInput(item.keptDate);
     setPriceInput(String(item.price));
+    setAskOwnerPriceInput(Boolean(item.askOwnerPrice));
+    setAvailableForTradeInput(Boolean(item.availableForTrade));
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -243,9 +259,36 @@ export function OwnerPanel({
         description: item.description,
         keptDate: item.keptDate,
         price: item.price,
+        askOwnerPrice: Boolean(item.askOwnerPrice),
+        availableForTrade: Boolean(item.availableForTrade),
         updatedAt: serverTimestamp(),
       });
       flashSuccess(`Status ${item.username} diubah ke "${nextStatus}".`);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `usernames/${item.id}`);
+    }
+  };
+
+  const handleQuickTrade = async (item: UsernameItem) => {
+    if (!isAdmin) return;
+    const nextTrade = !item.availableForTrade;
+    try {
+      await updateDoc(doc(db, 'usernames', item.id), {
+        username: item.username,
+        category: item.category,
+        status: item.status,
+        description: item.description,
+        keptDate: item.keptDate,
+        price: item.price,
+        askOwnerPrice: Boolean(item.askOwnerPrice),
+        availableForTrade: nextTrade,
+        updatedAt: serverTimestamp(),
+      });
+      flashSuccess(
+        nextTrade
+          ? `${item.username} ditandai available untuk trade.`
+          : `${item.username} dihapus dari daftar trade.`
+      );
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `usernames/${item.id}`);
     }
@@ -427,7 +470,9 @@ export function OwnerPanel({
   const filteredUsernames =
     filterCategory === 'all'
       ? usernames
-      : usernames.filter((u) => u.category === filterCategory);
+      : filterCategory === 'trade'
+        ? usernames.filter((u) => u.availableForTrade)
+        : usernames.filter((u) => u.category === filterCategory);
 
   return (
     <div className="w-full max-w-5xl mx-auto px-4 pb-12 pt-2 space-y-6">
@@ -436,14 +481,14 @@ export function OwnerPanel({
           <h2 className="text-2xl sm:text-3xl font-extrabold text-outline-green tracking-tight">
             PANEL KELOLA GALLERY
           </h2>
-          <p className="text-sm text-white/90 mt-0.5">
+          <p className="text-sm text-white mt-0.5">
             Input username baru dan otomatis tampil di kolom katalog semua pengunjung.
           </p>
         </div>
 
         {user && (
           <div className="flex items-center gap-3">
-            <span className="text-xs text-white/85 hidden sm:inline">
+            <span className="text-xs text-white/95 hidden sm:inline">
               {user.email}
             </span>
             <button
@@ -459,7 +504,7 @@ export function OwnerPanel({
       </div>
 
       {authLoading ? (
-        <div className="glass-panel rounded-3xl p-8 text-center text-white/90">
+        <div className="glass-panel rounded-3xl p-8 text-center text-white">
           Memeriksa sesi login...
         </div>
       ) : !user ? (
@@ -467,11 +512,11 @@ export function OwnerPanel({
           <h3 className="font-display-serif text-2xl font-bold text-white">
             Masuk Sebagai Owner
           </h3>
-          <p className="text-sm text-white/85 leading-relaxed">
+          <p className="text-sm text-white/95 leading-relaxed">
             Untuk menjaga agar pengunjung lain tidak bisa mengubah daftar username Anda, silakan login dengan akun Google owner ({OWNER_EMAIL}).
           </p>
           {errorMsg && (
-            <p className="text-xs text-rose-200 bg-rose-950/60 border border-rose-400/40 rounded-xl px-3 py-2">
+            <p className="text-xs text-rose-100 bg-rose-950/60 border border-rose-400/40 rounded-xl px-3 py-2">
               {errorMsg}
             </p>
           )}
@@ -487,7 +532,7 @@ export function OwnerPanel({
             <button
               type="button"
               onClick={onBack}
-              className="px-5 py-3 rounded-full text-sm font-semibold text-white/80 hover:text-white cursor-pointer"
+              className="px-5 py-3 rounded-full text-sm font-semibold text-white/95 hover:text-white cursor-pointer"
             >
               Kembali ke Gallery
             </button>
@@ -498,7 +543,7 @@ export function OwnerPanel({
           <h3 className="font-display-serif text-xl font-bold text-white">
             Akses Terbatas
           </h3>
-          <p className="text-sm text-white/85">
+          <p className="text-sm text-white/95">
             Akun <strong>{user.email}</strong> belum terdaftar sebagai admin gallery. Silakan masuk dengan akun owner <strong>{OWNER_EMAIL}</strong>.
           </p>
           <button
@@ -519,7 +564,7 @@ export function OwnerPanel({
               className={`px-4 py-2 rounded-full text-xs sm:text-sm font-bold transition-colors cursor-pointer ${
                 activeTab === 'usernames'
                   ? 'bg-[#729642] text-white shadow-md border border-white/40'
-                  : 'glass-pill text-white/85'
+                  : 'glass-pill text-white'
               }`}
             >
               Kelola Username ({usernames.length})
@@ -530,7 +575,7 @@ export function OwnerPanel({
               className={`px-4 py-2 rounded-full text-xs sm:text-sm font-bold transition-colors cursor-pointer ${
                 activeTab === 'settings'
                   ? 'bg-[#729642] text-white shadow-md border border-white/40'
-                  : 'glass-pill text-white/85'
+                  : 'glass-pill text-white'
               }`}
             >
               Link Telegram & How To Order
@@ -541,7 +586,7 @@ export function OwnerPanel({
               className={`px-4 py-2 rounded-full text-xs sm:text-sm font-bold transition-colors cursor-pointer ${
                 activeTab === 'admins'
                   ? 'bg-[#729642] text-white shadow-md border border-white/40'
-                  : 'glass-pill text-white/85'
+                  : 'glass-pill text-white'
               }`}
             >
               List Admin ({adminCards.length})
@@ -576,7 +621,7 @@ export function OwnerPanel({
                     <button
                       type="button"
                       onClick={resetUsernameForm}
-                      className="text-xs text-white/75 hover:text-white underline cursor-pointer"
+                      className="text-xs text-white/95 hover:text-white underline cursor-pointer"
                     >
                       Batal Edit
                     </button>
@@ -584,7 +629,7 @@ export function OwnerPanel({
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="block text-xs font-semibold text-white/85">
+                  <label className="block text-xs font-semibold text-white">
                     Username Telegram
                   </label>
                   <input
@@ -593,32 +638,37 @@ export function OwnerPanel({
                     value={usernameInput}
                     onChange={(e) => setUsernameInput(e.target.value)}
                     placeholder="@contohusn"
-                    className="w-full rounded-xl bg-white/10 border border-white/25 px-3.5 py-2.5 text-sm text-white placeholder-white/45 focus:outline-none focus:border-white"
+                    className="w-full rounded-xl bg-white/10 border border-white/25 px-3.5 py-2.5 text-sm text-white placeholder-white/75 focus:outline-none focus:border-white"
                   />
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
-                    <label className="block text-xs font-semibold text-white/85">
+                    <label className="block text-xs font-semibold text-white">
                       Kategori Jenis
                     </label>
                     <select
                       value={categoryInput}
-                      onChange={(e) =>
-                        setCategoryInput(e.target.value as UsernameCategory)
-                      }
+                      onChange={(e) => {
+                        const nextCat = e.target.value as UsernameCategory;
+                        setCategoryInput(nextCat);
+                        if (!editingId && nextCat === 'sermabu') {
+                          setAskOwnerPriceInput(false);
+                          setPriceInput('5000');
+                        }
+                      }}
                       className="w-full rounded-xl bg-[#253b16] border border-white/25 px-3 py-2.5 text-sm text-white focus:outline-none focus:border-white"
                     >
                       {USERNAME_CATEGORIES.map((cat) => (
                         <option key={cat} value={cat}>
-                          {cat}
+                          {cat === 'sermabu' ? 'sermabu (serba 5rb)' : cat}
                         </option>
                       ))}
                     </select>
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="block text-xs font-semibold text-white/85">
+                    <label className="block text-xs font-semibold text-white">
                       Status
                     </label>
                     <select
@@ -637,25 +687,58 @@ export function OwnerPanel({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-3">
                   <div className="space-y-1.5">
-                    <label className="block text-xs font-semibold text-white/85">
-                      Harga (Rp)
-                    </label>
-                    <input
-                      type="number"
-                      min={0}
-                      max={MAX_PRICE}
-                      required
-                      value={priceInput}
-                      onChange={(e) => setPriceInput(e.target.value)}
-                      placeholder="150000"
-                      className="w-full rounded-xl bg-white/10 border border-white/25 px-3.5 py-2.5 text-sm text-white font-mono-num focus:outline-none focus:border-white"
-                    />
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="block text-xs font-semibold text-white">
+                        Harga
+                      </label>
+                      <div className="inline-flex items-center gap-1 p-0.5 rounded-lg bg-black/30 border border-white/15">
+                        <button
+                          type="button"
+                          onClick={() => setAskOwnerPriceInput(false)}
+                          className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-colors cursor-pointer ${
+                            !askOwnerPriceInput
+                              ? 'bg-[#729642] text-white'
+                              : 'text-white/90 hover:text-white'
+                          }`}
+                        >
+                          Nominal (Rp)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAskOwnerPriceInput(true)}
+                          className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-colors cursor-pointer ${
+                            askOwnerPriceInput
+                              ? 'bg-[#729642] text-white'
+                              : 'text-white/90 hover:text-white'
+                          }`}
+                        >
+                          Ask Owner
+                        </button>
+                      </div>
+                    </div>
+
+                    {askOwnerPriceInput ? (
+                      <div className="w-full rounded-xl bg-white/10 border border-[#a3d466]/50 px-3.5 py-2.5 text-sm font-semibold text-[#f7ffe8]">
+                        Ask Owner — harga disembunyikan (buyer diarahkan ke bot / personal chat)
+                      </div>
+                    ) : (
+                      <input
+                        type="number"
+                        min={0}
+                        max={MAX_PRICE}
+                        required
+                        value={priceInput}
+                        onChange={(e) => setPriceInput(e.target.value)}
+                        placeholder="150000"
+                        className="w-full rounded-xl bg-white/10 border border-white/25 px-3.5 py-2.5 text-sm text-white placeholder-white/75 font-mono-num focus:outline-none focus:border-white"
+                      />
+                    )}
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="block text-xs font-semibold text-white/85">
+                    <label className="block text-xs font-semibold text-white">
                       Tanggal Keep
                     </label>
                     <input
@@ -665,24 +748,81 @@ export function OwnerPanel({
                       value={keptDateInput}
                       onChange={(e) => setKeptDateInput(e.target.value)}
                       placeholder="24 - 11 - 2026"
-                      className="w-full rounded-xl bg-white/10 border border-white/25 px-3.5 py-2.5 text-sm text-white font-mono-num focus:outline-none focus:border-white"
+                      className="w-full rounded-xl bg-white/10 border border-white/25 px-3.5 py-2.5 text-sm text-white placeholder-white/75 font-mono-num focus:outline-none focus:border-white"
                     />
                   </div>
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="block text-xs font-semibold text-white/85">
-                    Keterangan
-                  </label>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <label className="block text-xs font-semibold text-white">
+                      Keterangan
+                    </label>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {DESCRIPTION_PRESETS.map((preset) => {
+                        const isActive =
+                          descriptionInput.trim().toLowerCase() === preset;
+                        return (
+                          <button
+                            key={preset}
+                            type="button"
+                            onClick={() => setDescriptionInput(preset)}
+                            className={`px-2.5 py-1 rounded-md text-[11px] font-semibold border transition-colors cursor-pointer ${
+                              isActive
+                                ? 'bg-[#729642] border-white/50 text-white'
+                                : 'bg-white/10 hover:bg-white/20 border-white/25 text-white'
+                            }`}
+                          >
+                            {preset}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                   <textarea
                     rows={2}
                     required
                     maxLength={MAX_DESCRIPTION_LEN}
                     value={descriptionInput}
                     onChange={(e) => setDescriptionInput(e.target.value)}
-                    placeholder="username bersih"
-                    className="w-full rounded-xl bg-white/10 border border-white/25 px-3.5 py-2.5 text-sm text-white placeholder-white/45 focus:outline-none focus:border-white resize-none"
+                    placeholder="username bersih / available nego / nett / not for sale"
+                    className="w-full rounded-xl bg-white/10 border border-white/25 px-3.5 py-2.5 text-sm text-white placeholder-white/75 focus:outline-none focus:border-white resize-none"
                   />
+                </div>
+
+                <div className="flex items-center justify-between gap-3 rounded-xl bg-white/10 border border-white/20 px-3.5 py-2.5">
+                  <div>
+                    <p className="text-xs font-semibold text-white">
+                      Available untuk Trade
+                    </p>
+                    <p className="text-[11px] text-white/90">
+                      Tampilkan di menu filter tombol trade
+                    </p>
+                  </div>
+                  <div className="inline-flex items-center gap-1 p-0.5 rounded-lg bg-black/30 border border-white/15 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setAvailableForTradeInput(false)}
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-colors cursor-pointer ${
+                        !availableForTradeInput
+                          ? 'bg-white/20 text-white'
+                          : 'text-white/90 hover:text-white'
+                      }`}
+                    >
+                      Tidak
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAvailableForTradeInput(true)}
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-colors cursor-pointer ${
+                        availableForTradeInput
+                          ? 'bg-[#729642] text-white'
+                          : 'text-white/90 hover:text-white'
+                      }`}
+                    >
+                      Ya, Trade
+                    </button>
+                  </div>
                 </div>
 
                 <button
@@ -705,7 +845,7 @@ export function OwnerPanel({
                     type="button"
                     disabled={busy}
                     onClick={handleSeedSamples}
-                    className="w-full min-h-[40px] rounded-full bg-white/10 hover:bg-white/20 text-white/90 font-semibold text-xs flex items-center justify-center gap-1.5 border border-white/20 transition-colors cursor-pointer"
+                    className="w-full min-h-[40px] rounded-full bg-white/10 hover:bg-white/20 text-white font-semibold text-xs flex items-center justify-center gap-1.5 border border-white/25 transition-colors cursor-pointer"
                   >
                     <Sparkles className="w-3.5 h-3.5" />
                     <span>Isi 6 Contoh Username Awal</span>
@@ -722,11 +862,16 @@ export function OwnerPanel({
                   <select
                     value={filterCategory}
                     onChange={(e) =>
-                      setFilterCategory(e.target.value as 'all' | UsernameCategory)
+                      setFilterCategory(
+                        e.target.value as 'all' | 'trade' | UsernameCategory
+                      )
                     }
                     className="rounded-xl bg-[#253b16] border border-white/25 px-3 py-1.5 text-xs font-semibold text-white focus:outline-none"
                   >
                     <option value="all">Semua Kategori ({usernames.length})</option>
+                    <option value="trade">
+                      Available Trade ({usernames.filter((u) => u.availableForTrade).length})
+                    </option>
                     {USERNAME_CATEGORIES.map((c) => (
                       <option key={c} value={c}>
                         {c} ({usernames.filter((u) => u.category === c).length})
@@ -736,7 +881,7 @@ export function OwnerPanel({
                 </div>
 
                 {filteredUsernames.length === 0 ? (
-                  <p className="text-sm text-white/75 py-8 text-center">
+                  <p className="text-sm text-white/95 py-8 text-center">
                     Belum ada username di kategori ini. Tambahkan lewat form di samping.
                   </p>
                 ) : (
@@ -747,20 +892,32 @@ export function OwnerPanel({
                         className="py-3 flex flex-wrap items-center justify-between gap-3"
                       >
                         <div className="min-w-0">
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <span className="font-bold text-white text-sm sm:text-base">
                               {item.username}
                             </span>
-                            <span className="text-xs text-white/70">
+                            <span className="text-xs text-white/90">
                               {item.category} · {item.status}
+                              {item.availableForTrade ? ' · open trade' : ''}
                             </span>
                           </div>
-                          <p className="text-xs text-white/75 mt-0.5 font-mono-num">
-                            {formatRupiah(item.price)} · Keep: {item.keptDate}
+                          <p className="text-xs text-white/95 mt-0.5 font-mono-num">
+                            {formatUsernamePrice(item)} · Keep: {item.keptDate}
                           </p>
                         </div>
 
                         <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleQuickTrade(item)}
+                            className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold cursor-pointer ${
+                              item.availableForTrade
+                                ? 'bg-[#729642] text-white'
+                                : 'bg-white/10 hover:bg-white/20 text-white'
+                            }`}
+                          >
+                            {item.availableForTrade ? 'Trade On' : '+ Trade'}
+                          </button>
                           <button
                             type="button"
                             onClick={() =>
@@ -813,7 +970,7 @@ export function OwnerPanel({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="block text-xs font-semibold text-white/85">
+                  <label className="block text-xs font-semibold text-white">
                     Link Akun Telegram Owner
                   </label>
                   <input
@@ -825,7 +982,7 @@ export function OwnerPanel({
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="block text-xs font-semibold text-white/85">
+                  <label className="block text-xs font-semibold text-white">
                     Link Bot Order Telegram
                   </label>
                   <input
@@ -840,7 +997,7 @@ export function OwnerPanel({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="block text-xs font-semibold text-white/85">
+                  <label className="block text-xs font-semibold text-white">
                     Tujuan Utama Tombol "Beli Sekarang"
                   </label>
                   <select
@@ -855,7 +1012,7 @@ export function OwnerPanel({
                   </select>
                 </div>
                 <div className="space-y-1.5">
-                  <label className="block text-xs font-semibold text-white/85">
+                  <label className="block text-xs font-semibold text-white">
                     Link Channel Testimoni
                   </label>
                   <input
@@ -869,7 +1026,7 @@ export function OwnerPanel({
               </div>
 
               <div className="space-y-1.5">
-                <label className="block text-xs font-semibold text-white/85">
+                <label className="block text-xs font-semibold text-white">
                   Langkah How To Order (1 baris = 1 langkah, maks 10 baris)
                 </label>
                 <textarea
@@ -881,7 +1038,7 @@ export function OwnerPanel({
               </div>
 
               <div className="space-y-1.5">
-                <label className="block text-xs font-semibold text-white/85">
+                <label className="block text-xs font-semibold text-white">
                   Catatan Tambahan Order
                 </label>
                 <textarea
@@ -918,7 +1075,7 @@ export function OwnerPanel({
                   placeholder="Nama Admin (misal: yew cyrene)"
                   value={adminName}
                   onChange={(e) => setAdminName(e.target.value)}
-                  className="w-full rounded-xl bg-white/10 border border-white/25 px-3.5 py-2.5 text-sm text-white placeholder-white/45"
+                  className="w-full rounded-xl bg-white/10 border border-white/25 px-3.5 py-2.5 text-sm text-white placeholder-white/75"
                 />
                 <div className="grid grid-cols-2 gap-3">
                   <input
@@ -926,14 +1083,14 @@ export function OwnerPanel({
                     placeholder="Role (OWNER / ADMIN)"
                     value={adminRole}
                     onChange={(e) => setAdminRole(e.target.value)}
-                    className="w-full rounded-xl bg-white/10 border border-white/25 px-3.5 py-2.5 text-sm text-white"
+                    className="w-full rounded-xl bg-white/10 border border-white/25 px-3.5 py-2.5 text-sm text-white placeholder-white/75"
                   />
                   <input
                     type="text"
                     placeholder="Teks Vertikal (DUCKLINGY)"
                     value={adminVerticalTag}
                     onChange={(e) => setAdminVerticalTag(e.target.value)}
-                    className="w-full rounded-xl bg-white/10 border border-white/25 px-3.5 py-2.5 text-sm text-white"
+                    className="w-full rounded-xl bg-white/10 border border-white/25 px-3.5 py-2.5 text-sm text-white placeholder-white/75"
                   />
                 </div>
                 <input
@@ -942,7 +1099,7 @@ export function OwnerPanel({
                   placeholder="Link Telegram (https://t.me/duckLingy)"
                   value={adminTgUrl}
                   onChange={(e) => setAdminTgUrl(e.target.value)}
-                  className="w-full rounded-xl bg-white/10 border border-white/25 px-3.5 py-2.5 text-sm text-white"
+                  className="w-full rounded-xl bg-white/10 border border-white/25 px-3.5 py-2.5 text-sm text-white placeholder-white/75"
                 />
                 <div className="grid grid-cols-2 gap-3">
                   <input
@@ -950,14 +1107,14 @@ export function OwnerPanel({
                     placeholder="Gallery (@kerocoo)"
                     value={adminGallery}
                     onChange={(e) => setAdminGallery(e.target.value)}
-                    className="w-full rounded-xl bg-white/10 border border-white/25 px-3.5 py-2.5 text-sm text-white"
+                    className="w-full rounded-xl bg-white/10 border border-white/25 px-3.5 py-2.5 text-sm text-white placeholder-white/75"
                   />
                   <input
                     type="text"
                     placeholder="Ch Payment (@mourah)"
                     value={adminPayment}
                     onChange={(e) => setAdminPayment(e.target.value)}
-                    className="w-full rounded-xl bg-white/10 border border-white/25 px-3.5 py-2.5 text-sm text-white"
+                    className="w-full rounded-xl bg-white/10 border border-white/25 px-3.5 py-2.5 text-sm text-white placeholder-white/75"
                   />
                 </div>
                 <input
@@ -965,14 +1122,14 @@ export function OwnerPanel({
                   placeholder="Bot Handle (@payusnbot)"
                   value={adminBot}
                   onChange={(e) => setAdminBot(e.target.value)}
-                  className="w-full rounded-xl bg-white/10 border border-white/25 px-3.5 py-2.5 text-sm text-white"
+                  className="w-full rounded-xl bg-white/10 border border-white/25 px-3.5 py-2.5 text-sm text-white placeholder-white/75"
                 />
                 <input
                   type="text"
                   placeholder="URL Foto Profil (opsional)"
                   value={adminPhoto}
                   onChange={(e) => setAdminPhoto(e.target.value)}
-                  className="w-full rounded-xl bg-white/10 border border-white/25 px-3.5 py-2.5 text-sm text-white placeholder-white/45"
+                  className="w-full rounded-xl bg-white/10 border border-white/25 px-3.5 py-2.5 text-sm text-white placeholder-white/75"
                 />
                 <button
                   type="submit"
@@ -998,7 +1155,7 @@ export function OwnerPanel({
                   Daftar Admin Aktif
                 </h3>
                 {adminCards.length === 0 ? (
-                  <p className="text-sm text-white/75">
+                  <p className="text-sm text-white/95">
                     Saat ini menampilkan kartu owner bawaan (@duckLingy / yew cyrene). Tambahkan admin lain jika ada.
                   </p>
                 ) : (
@@ -1012,7 +1169,7 @@ export function OwnerPanel({
                           <p className="font-bold text-white text-sm">
                             {adm.name} · {adm.role}
                           </p>
-                          <p className="text-xs text-white/75">{adm.telegramUrl}</p>
+                          <p className="text-xs text-white/95">{adm.telegramUrl}</p>
                         </div>
                         <button
                           type="button"

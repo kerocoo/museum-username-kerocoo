@@ -23,7 +23,10 @@
             "bahasa lain",
             "related boy",
             "nsfw",
-            "collect only"
+            "collect only",
+            "idol",
+            "2D",
+            "sermabu"
           ]
         },
         "status": {
@@ -37,7 +40,7 @@
         },
         "description": {
           "type": "string",
-          "description": "Condition or notes about the username",
+          "description": "Condition or notes about the username (e.g. username bersih, available nego, nett, not for sale)",
           "minLength": 1,
           "maxLength": 300
         },
@@ -50,6 +53,14 @@
         "price": {
           "type": "number",
           "description": "Price in Indonesian Rupiah (IDR)"
+        },
+        "askOwnerPrice": {
+          "type": "boolean",
+          "description": "When true, price is hidden and shown as Ask Owner"
+        },
+        "availableForTrade": {
+          "type": "boolean",
+          "description": "When true, the username is available for trade"
         },
         "ownerUid": {
           "type": "string",
