@@ -1,0 +1,246 @@
+{
+  "entities": {
+    "UsernameItem": {
+      "title": "UsernameItem",
+      "description": "A Telegram username listing available in the @kerocoo gallery catalog.",
+      "type": "object",
+      "properties": {
+        "username": {
+          "type": "string",
+          "description": "Telegram handle starting with @",
+          "minLength": 2,
+          "maxLength": 64,
+          "pattern": "^@[a-zA-Z0-9_]{1,63}$"
+        },
+        "category": {
+          "type": "string",
+          "description": "Username category matching the gallery taxonomy",
+          "enum": [
+            "uncommon",
+            "related BA",
+            "tamping",
+            "related girl",
+            "bahasa lain",
+            "related boy",
+            "nsfw",
+            "collect only"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "description": "Availability status of the username",
+          "enum": [
+            "available to buy",
+            "booked",
+            "sold"
+          ]
+        },
+        "description": {
+          "type": "string",
+          "description": "Condition or notes about the username",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "keptDate": {
+          "type": "string",
+          "description": "Date when the username was kept (e.g., 24 - 11 - 2026)",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "price": {
+          "type": "number",
+          "description": "Price in Indonesian Rupiah (IDR)"
+        },
+        "ownerUid": {
+          "type": "string",
+          "description": "UID of the admin who created the listing",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of creation"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last update"
+        }
+      },
+      "required": [
+        "username",
+        "category",
+        "status",
+        "description",
+        "keptDate",
+        "price",
+        "ownerUid",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AdminCard": {
+      "title": "AdminCard",
+      "description": "Publicly displayed admin contact card in the List Admin view.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "role": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "photoUrl": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "verticalTag": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 24
+        },
+        "galleryHandle": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "paymentChannel": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "anotherHandle": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "botHandle": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "telegramUrl": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "sortOrder": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "name",
+        "role",
+        "verticalTag",
+        "telegramUrl",
+        "sortOrder",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "StoreConfig": {
+      "title": "StoreConfig",
+      "description": "Public gallery configuration including Telegram links and How To Order guide.",
+      "type": "object",
+      "properties": {
+        "telegramAccountUrl": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "telegramBotUrl": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "primaryBuyTarget": {
+          "type": "string",
+          "enum": [
+            "account",
+            "bot"
+          ]
+        },
+        "testimonialUrl": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "howToOrderSteps": {
+          "type": "array",
+          "description": "Ordered step-by-step instructions for ordering a username"
+        },
+        "howToOrderNote": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "telegramAccountUrl",
+        "telegramBotUrl",
+        "primaryBuyTarget",
+        "testimonialUrl",
+        "howToOrderSteps",
+        "updatedAt"
+      ]
+    },
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Authorized admin role record isolated from public storefront cards.",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 150
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "email",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/usernames/{usernameId}": {
+      "schema": {
+        "$ref": "#/entities/UsernameItem"
+      },
+      "description": "Publicly readable catalog of Telegram usernames; writable only by verified admins."
+    },
+    "/adminCards/{cardId}": {
+      "schema": {
+        "$ref": "#/entities/AdminCard"
+      },
+      "description": "Publicly readable admin showcase cards; writable only by verified admins."
+    },
+    "/storeConfig/{configId}": {
+      "schema": {
+        "$ref": "#/entities/StoreConfig"
+      },
+      "description": "Publicly readable storefront links and how-to-order copy; writable only by verified admins."
+    },
+    "/admins/{adminUid}": {
+      "schema": {
+        "$ref": "#/entities/AdminUser"
+      },
+      "description": "Private RBAC directory of authorized admin UIDs."
+    }
+  }
+}

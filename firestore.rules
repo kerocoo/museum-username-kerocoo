@@ -1,0 +1,268 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Core security primitives
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isBootstrappedOwner() {
+      return isVerified() && request.auth.token.email == 'meicyagsaputri@gmail.com';
+    }
+
+    function isAdmin() {
+      return isBootstrappedOwner() || (isVerified() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+    }
+
+    function isValidCategory(cat) {
+      return cat in [
+        'uncommon',
+        'related BA',
+        'tamping',
+        'related girl',
+        'bahasa lain',
+        'related boy',
+        'nsfw',
+        'collect only'
+      ];
+    }
+
+    function isValidStatus(status) {
+      return status in ['available to buy', 'booked', 'sold'];
+    }
+
+    function isValidUsernameItem(data) {
+      return data.keys().hasAll([
+        'username',
+        'category',
+        'status',
+        'description',
+        'keptDate',
+        'price',
+        'ownerUid',
+        'createdAt',
+        'updatedAt'
+      ]) && data.keys().hasOnly([
+        'username',
+        'category',
+        'status',
+        'description',
+        'keptDate',
+        'price',
+        'ownerUid',
+        'createdAt',
+        'updatedAt'
+      ]) &&
+      data.username is string && data.username.size() >= 2 && data.username.size() <= 64 && data.username.matches('^@[a-zA-Z0-9_]{1,63}$') &&
+      data.category is string && isValidCategory(data.category) &&
+      data.status is string && isValidStatus(data.status) &&
+      data.description is string && data.description.size() >= 1 && data.description.size() <= 300 &&
+      data.keptDate is string && data.keptDate.size() >= 1 && data.keptDate.size() <= 32 &&
+      (data.price is int || data.price is float) && data.price >= 0 && data.price <= 1000000000 &&
+      data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128 &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidAdminCard(data) {
+      return data.keys().hasAll([
+        'name',
+        'role',
+        'verticalTag',
+        'telegramUrl',
+        'sortOrder',
+        'createdAt',
+        'updatedAt'
+      ]) && data.keys().hasOnly([
+        'name',
+        'role',
+        'photoUrl',
+        'verticalTag',
+        'galleryHandle',
+        'paymentChannel',
+        'anotherHandle',
+        'botHandle',
+        'telegramUrl',
+        'sortOrder',
+        'createdAt',
+        'updatedAt'
+      ]) &&
+      data.name is string && data.name.size() >= 1 && data.name.size() <= 80 &&
+      data.role is string && data.role.size() >= 1 && data.role.size() <= 40 &&
+      (!('photoUrl' in data) || (data.photoUrl is string && data.photoUrl.size() <= 500)) &&
+      data.verticalTag is string && data.verticalTag.size() >= 1 && data.verticalTag.size() <= 24 &&
+      (!('galleryHandle' in data) || (data.galleryHandle is string && data.galleryHandle.size() <= 64)) &&
+      (!('paymentChannel' in data) || (data.paymentChannel is string && data.paymentChannel.size() <= 64)) &&
+      (!('anotherHandle' in data) || (data.anotherHandle is string && data.anotherHandle.size() <= 64)) &&
+      (!('botHandle' in data) || (data.botHandle is string && data.botHandle.size() <= 64)) &&
+      data.telegramUrl is string && data.telegramUrl.size() >= 1 && data.telegramUrl.size() <= 200 &&
+      (data.sortOrder is int || data.sortOrder is float) && data.sortOrder >= 0 && data.sortOrder <= 1000 &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidStoreConfig(data) {
+      return data.keys().hasAll([
+        'telegramAccountUrl',
+        'telegramBotUrl',
+        'primaryBuyTarget',
+        'testimonialUrl',
+        'howToOrderSteps',
+        'updatedAt'
+      ]) && data.keys().hasOnly([
+        'telegramAccountUrl',
+        'telegramBotUrl',
+        'primaryBuyTarget',
+        'testimonialUrl',
+        'howToOrderSteps',
+        'howToOrderNote',
+        'updatedAt'
+      ]) &&
+      data.telegramAccountUrl is string && data.telegramAccountUrl.size() >= 1 && data.telegramAccountUrl.size() <= 200 &&
+      data.telegramBotUrl is string && data.telegramBotUrl.size() >= 1 && data.telegramBotUrl.size() <= 200 &&
+      data.primaryBuyTarget is string && data.primaryBuyTarget in ['account', 'bot'] &&
+      data.testimonialUrl is string && data.testimonialUrl.size() >= 1 && data.testimonialUrl.size() <= 200 &&
+      data.howToOrderSteps is list && data.howToOrderSteps.size() >= 1 && data.howToOrderSteps.size() <= 10 &&
+      data.howToOrderSteps[0] is string && data.howToOrderSteps[0].size() <= 300 &&
+      (!('howToOrderNote' in data) || (data.howToOrderNote is string && data.howToOrderNote.size() <= 500)) &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidAdminUser(data) {
+      return data.keys().hasAll(['email', 'createdAt']) &&
+      data.keys().hasOnly(['email', 'createdAt']) &&
+      data.email is string && data.email.size() >= 3 && data.email.size() <= 150 &&
+      data.createdAt is timestamp;
+    }
+
+    // Connection test endpoint (read-only single doc)
+    match /test/{docId} {
+      allow get: if docId == 'connection';
+      allow list, write: if false;
+    }
+
+    // Publicly browsable username catalog; admin-only writes
+    match /usernames/{usernameId} {
+      allow get: if isValidId(usernameId);
+      allow list: if true;
+
+      allow create: if isAdmin() &&
+        isValidId(usernameId) &&
+        isValidUsernameItem(incoming()) &&
+        incoming().ownerUid == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isAdmin() &&
+        isValidId(usernameId) &&
+        isValidUsernameItem(incoming()) &&
+        incoming().ownerUid == existing().ownerUid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'username',
+          'category',
+          'status',
+          'description',
+          'keptDate',
+          'price',
+          'updatedAt'
+        ]);
+
+      allow delete: if isAdmin() && isValidId(usernameId);
+    }
+
+    // Publicly browsable admin cards; admin-only writes
+    match /adminCards/{cardId} {
+      allow get: if isValidId(cardId);
+      allow list: if true;
+
+      allow create: if isAdmin() &&
+        isValidId(cardId) &&
+        isValidAdminCard(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isAdmin() &&
+        isValidId(cardId) &&
+        isValidAdminCard(incoming()) &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'name',
+          'role',
+          'photoUrl',
+          'verticalTag',
+          'galleryHandle',
+          'paymentChannel',
+          'anotherHandle',
+          'botHandle',
+          'telegramUrl',
+          'sortOrder',
+          'updatedAt'
+        ]);
+
+      allow delete: if isAdmin() && isValidId(cardId);
+    }
+
+    // Public storefront links & how-to-order copy; admin-only writes
+    match /storeConfig/{configId} {
+      allow get: if isValidId(configId);
+      allow list: if false;
+
+      allow create: if isAdmin() &&
+        isValidId(configId) &&
+        isValidStoreConfig(incoming()) &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isAdmin() &&
+        isValidId(configId) &&
+        isValidStoreConfig(incoming()) &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'telegramAccountUrl',
+          'telegramBotUrl',
+          'primaryBuyTarget',
+          'testimonialUrl',
+          'howToOrderSteps',
+          'howToOrderNote',
+          'updatedAt'
+        ]);
+
+      allow delete: if false;
+    }
+
+    // Private RBAC admin records (PII isolated)
+    match /admins/{adminUid} {
+      allow get: if isVerified() && isValidId(adminUid) && (request.auth.uid == adminUid || isBootstrappedOwner());
+      allow list: if isBootstrappedOwner() && resource.data.email is string;
+      allow create: if isBootstrappedOwner() &&
+        isValidId(adminUid) &&
+        isValidAdminUser(incoming()) &&
+        incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isBootstrappedOwner() && isValidId(adminUid);
+    }
+  }
+}
